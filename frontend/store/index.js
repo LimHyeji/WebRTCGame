@@ -3,13 +3,11 @@ import { createWrapper } from "next-redux-wrapper";
 import rootReducer from "./reducers";
 import { persistStore, persistReducer, } from "redux-persist";
 import storageSession from "redux-persist/lib/storage/session";
-// import storage from 'redux-persist/lib/storage'
 import logger from 'redux-logger';
 
 const persistConfig = {
   key: "root",
   storage: storageSession,
-  //storage,
 }
 
 

@@ -11,11 +11,6 @@ import { Stomp } from "@stomp/stompjs";
 import { useDispatch, useSelector } from "react-redux";
 import { addPlayers, resetPlayers } from "@/store/reducers/players.js";
 import { ready } from "@/store/reducers/player.js";
-import {
-  setPublisherData,
-  setParticipantsData,
-  resetParticipantsData,
-} from "@/store/reducers/openvidu.js";
 import { setCells, setStartGame } from "@/store/reducers/cell";
 import { OpenVidu } from "openvidu-browser";
 import styles from "@/styles/RoomPage.module.css";
@@ -59,7 +54,7 @@ export default function RoomPage() {
       .then((response) => {
         console.log("플레이어들 정보 받아오기");
         console.log(response);
-        // dispatch(resetPlayers([]));
+        dispatch(resetPlayers([]));
 
         setStart(true); //이후의 유효성 검사에서 모두 통과 시에 게임 시작 가능
 
@@ -86,9 +81,6 @@ export default function RoomPage() {
           };
 
           dispatch(addPlayers(obj));
-          console.log("받아온 데이터 결과 stargame");
-          console.log(startGame);
-          dispatch(setStartGame(startGame));
         }
       })
       .catch((error) => {
@@ -175,9 +167,6 @@ export default function RoomPage() {
     if (index > -1) {
       tempParticipants.splice(index, 1);
       setParticipants(tempParticipants);
-
-      dispatch(resetParticipantsData([]));
-      dispatch(setParticipantsData(tempParticipants));
     }
   };
 
@@ -185,15 +174,10 @@ export default function RoomPage() {
     try {
       session.on("streamCreated", async (event) => {
         let participant = session.subscribe(event.stream, undefined);
-        let tempParticipants = [];
-        participants.map((par) => {
-          tempParticipants.push({ par });
-          dispatch(setParticipantsData(par));
-        });
-        const nick = JSON.parse(participant.stream.connection.data.split("%")[0]).clientData;
-        dispatch(setParticipantsData({ nick: nick, participant: participant }));
-        tempParticipants.push({ nick: nick, participant: participant });
+        let tempParticipants = participants;
+        tempParticipants.push(participant);
         setParticipants(tempParticipants);
+      
       });
 
       session.on("streamDestroyed", (event) => {
@@ -230,7 +214,6 @@ export default function RoomPage() {
       );
 
       setPublisher(pub);
-      dispatch(setPublisherData(pub));
     } catch (error) {
       console.log(error);
       router.push({
@@ -260,7 +243,6 @@ export default function RoomPage() {
     return () => {
       window.removeEventListener("beforeunload", onbeforeunload);
       if (subGame) {
-        console.log("구독해제")
         subGame.unsubscribe();
       }
     };
