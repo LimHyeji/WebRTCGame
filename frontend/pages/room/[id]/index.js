@@ -11,7 +11,7 @@ import { Stomp } from "@stomp/stompjs";
 import { useDispatch, useSelector } from "react-redux";
 import { addPlayers, resetPlayers } from "@/store/reducers/players.js";
 import { ready } from "@/store/reducers/player.js";
-import { setCells, setStartGame } from "@/store/reducers/cell";
+import { setCells } from "@/store/reducers/cell";
 import { OpenVidu } from "openvidu-browser";
 import styles from "@/styles/RoomPage.module.css";
 
@@ -155,93 +155,11 @@ export default function RoomPage() {
     });
   };
 
-  /* 혜지 : OpenVidu 연결 관련 메소드 시작 */
-  const onbeforeunload = async (e) => {
-    leaveSession();
-    await deletePlayer();
-  };
-
-  const deleteParticipant = (streamManager) => {
-    let tempParticipants = participants;
-    let index = tempParticipants.indexOf(streamManager, 0);
-    if (index > -1) {
-      tempParticipants.splice(index, 1);
-      setParticipants(tempParticipants);
-    }
-  };
-
-  const joinSession = async (token) => {
-    try {
-      session.on("streamCreated", async (event) => {
-        let participant = session.subscribe(event.stream, undefined);
-        let tempParticipants = participants;
-        tempParticipants.push(participant);
-        setParticipants(tempParticipants);
-      
-      });
-
-      session.on("streamDestroyed", (event) => {
-        deleteParticipant(event.stream.streamManager);
-      });
-
-      session.on("exception", (exception) => {
-        console.warn(exception);
-      });
-
-      /* 혜지 : 모든 사용자 PUBLISHER 지정 필수 */
-      await session.connect(token, { clientData: nickname, publisher: true });
-      /* 카메라 세팅 */
-      let pub = await OV.initPublisherAsync(undefined, {
-        audioSource: undefined, // 오디오
-        videoSource: undefined, // 비디오
-        publishAudio: true, // 오디오 송출
-        publishVideo: true, // 비디오 송출
-        resolution: "640x480",
-        frameRate: 30,
-        insertMode: "APPEND", // 비디오 컨테이너 적재 방식
-        mirror: false,
-      });
-
-      await session.publish(pub);
-      let deviceList = await OV.getDevices();
-      var videoDevices = deviceList.filter((device) => device.kind === "videoinput");
-      var currentVideoDeviceId = pub.stream
-        .getMediaStream()
-        .getVideoTracks()[0]
-        .getSettings().deviceId;
-      var currentVideoDevice = videoDevices.find(
-        (device) => device.deviceId === currentVideoDeviceId
-      );
-
-      setPublisher(pub);
-    } catch (error) {
-      console.log(error);
-      router.push({
-        pathname: "/exception",
-        query: { msg: "화상 연결에 문제가 있어요!" },
-      });
-    }
-  };
-
-  const leaveSession = () => {
-    if (session) {
-      session.disconnect();
-    }
-
-    OV = null;
-    setPublisher(undefined);
-    setParticipants([]);
-  };
-  /* 혜지 : OpenVidu 연결 관련 메소드 완료 */
-
   useEffect(() => {
     getPlayerList();
     connectSocket();
     subscribeSocket();
-    window.addEventListener("beforeunload", onbeforeunload);
-    joinSession(token);
     return () => {
-      window.removeEventListener("beforeunload", onbeforeunload);
       if (subGame) {
         subGame.unsubscribe();
       }
@@ -249,9 +167,10 @@ export default function RoomPage() {
   }, []);
 
   /* 희진 : 리랜더링 방지 시작 */
-  const memoRoomCam = useMemo(() => {
-    return <RoomCam />;
-  }, []);
+  /* 혜지 : RoomCam 리렌더링 필요 */
+  // const memoRoomCam = useMemo(() => {
+  //   return <RoomCam publisher={publisher} participants={participants}/>;
+  // }, [publisher,participants]);
 
   const memoRoomChat = useMemo(() => {
     return <RoomChat info={info} client={client} chatHistory={chatHistory} />;
@@ -269,7 +188,8 @@ export default function RoomPage() {
       <div className="roof2"></div>
       <div className={styles.room}>
       <div className={styles.camList} style={{ marginTop: '30px', marginLeft: '0px' }} >
-          {memoRoomCam} 
+          {/* {memoRoomCam}  */}
+          <RoomCam/>
         </div>
         {memoRoomChat}
         {memoRoonBtn}

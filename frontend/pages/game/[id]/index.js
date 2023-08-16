@@ -11,9 +11,9 @@ import Videostyles from '@/styles/UserVideo.module.css';
 import { styled } from "styled-components";
 import SockJS from "sockjs-client";
 import { Stomp } from "@stomp/stompjs";
-//import axios from "axios";
+import axios from "axios";
 import { useSelector } from "react-redux";
-import RoomCam from "@/pages/room/[id]/RoomCam";
+import { OpenVidu } from "openvidu-browser";
 
 /* 연재 : 모달 시작 */
 // 해야할 것: 모달 창 꾸미기
@@ -39,17 +39,17 @@ const ModalContent = styled.div`
 export default function GamePage() {
   const router = useRouter();
 
-  /* 제정 : RoomCam component에서 필요한 정보들 불러오기 시작 */
-  const session = useSelector(state => state.room.currentRoomId);
-  const nickname = useSelector(state => state.player.currentNick);
-  const publisher = useSelector(state => state.openvidu.publisher);
-  const participants = useSelector(state => state.openvidu.participants);
-  /* 제정 : RoomCam component에서 필요한 정보들 불러오기 끝 */
+/* 혜지 : 첫 렌더링 시에 OV, session 세팅 */
+let OV = new OpenVidu();
+let session = OV.initSession();
 
-  /* 혜지 : OpenVidu 관련 데이터 */
-  const token = useSelector((state) => state.player.currentPlayerId);
-  const roomId = useSelector((state) => state.room.currentRoomId);
-  //let includeMini = useSelector((state) => state.room.currentIncludeMini); // 미니게임 진행 여부
+const roomId = useSelector(state => state.room.currentRoomId);
+const nickname = useSelector(state => state.player.currentNick);
+
+const [publisher, setPublisher] = useState(undefined); //비디오, 오디오 송신자
+const [participants, setParticipants] = useState([]);//참여자들
+
+
 
   let [dice, setDice] = useState(0); // 주사위
   let [pin, setPin] = useState(0); // 현재 위치
@@ -112,15 +112,110 @@ export default function GamePage() {
     });
   };
 
+ /* 혜지 : OpenVidu 연결 관련 메소드 시작 */
+ const onbeforeunload = async (e) => {
+  leaveSession();
+};
+
+const deleteParticipant = (streamManager) => {
+  let tempParticipants = participants;
+  let index = tempParticipants.indexOf(streamManager, 0);
+  if (index > -1) {
+    tempParticipants.splice(index, 1);
+    setParticipants(tempParticipants);
+  }
+};
+
+const joinSession=()=> {
+  try {
+    session.on("streamCreated", (event) => {
+      let participant = session.subscribe(event.stream, undefined);
+      let tempParticipants = participants;
+      tempParticipants.push(participant);
+      setParticipants(tempParticipants);
+    });
+
+    session.on("streamDestroyed", (event) => {
+      deleteParticipant(event.stream.streamManager);
+    });
+
+    session.on("exception", (exception) => {
+      console.warn(exception);
+    });
+
+    /* 혜지 : 모든 사용자 PUBLISHER 지정 필수 */
+    getToken().then((token) => {
+      session.connect(token, { clientData: nickname, publisher: true })
+        .then(async () => {
+          /* 카메라 세팅 */
+          let pub = await OV.initPublisherAsync(undefined, {
+            audioSource: undefined, // 오디오
+            videoSource: undefined, // 비디오
+            publishAudio: true, // 오디오 송출
+            publishVideo: true, // 비디오 송출
+            resolution: "640x480",
+            frameRate: 30,
+            insertMode: "APPEND", // 비디오 컨테이너 적재 방식
+            mirror: false,
+          });
+
+          session.publish(pub);
+
+          let deviceList = await OV.getDevices();
+          var videoDevices = deviceList.filter((device) => device.kind === "videoinput");
+          var currentVideoDeviceId = pub.stream
+            .getMediaStream()
+            .getVideoTracks()[0]
+            .getSettings().deviceId;
+          var currentVideoDevice = videoDevices.find(
+            (device) => device.deviceId === currentVideoDeviceId
+          );
+
+          setPublisher(pub);
+        }).catch((error) => {
+          console.log(error);
+          router.push({
+            pathname: "/exception",
+            query: { msg: "화상 연결에 문제가 있어요!" },
+          });
+        });
+    });
+  }catch(error){
+    console.log(error);
+  }
+}
+
+  const leaveSession = () => {
+    if (session) {
+      session.disconnect();
+    }
+
+    setPublisher(undefined);
+    setParticipants([]);
+  };
+  /* 혜지 : OpenVidu 연결 관련 메소드 완료 */
+
+  const getToken = async () => {
+    const response = await axios.post(`http://localhost:80/token/${roomId}`, { nickname:nickname }, {
+      headers: { 'Content-Type': 'application/json', },
+    });
+    return response.data;
+  };
+
   useEffect(() => {
     // 최초 한 번 CellList 불러오기
     //createMap();
     connectSocket();
     subscribeSocket();
+    window.addEventListener('beforeunload', onbeforeunload);
+    joinSession();
 
     setTimeout(() => {
       client.current.send("/move/" + roomId, {}, JSON.stringify({ "reload": true }));
     }, 100); // 비동기화 문제 (시간 조절)
+    return () => {
+      window.removeEventListener('beforeunload', onbeforeunload);
+    }
   }, []);
 
   let handleRollDiceClick = () => {
@@ -206,7 +301,7 @@ export default function GamePage() {
                 {/* {participants != null ? participants.map((par, i) => (
                       <span key={par.id} className={Videostyles.streamcomponent} style={{ gridArea: `cam${i + 2}` }}>
                         <OpenViduVideoComponent className={styles.cam} streamManager={par} />
-                        <div className={Videostyles.nickname}>{par.nick}</div>
+                        <div className={Videostyles.nickname}>{JSON.parse(par.stream.connection.data.split("%")[0]).clientData}</div>
                       </span>
                     )) : null} */}
                 {/* 제정 : map으로 참가자 카메라 출력 끝 (희진 : 리랜더링 방지를 위해 주석 처리) */}
@@ -214,19 +309,19 @@ export default function GamePage() {
                 {participants != null ? (
                   <>
                     <span className={Videostyles.streamcomponent} style={{ gridArea: `cam${0 + 2}` }}>
-                      {/* <OpenViduVideoComponent className={styles.cam} streamManager={participants[0]} /> */}
+                      {/* { <OpenViduVideoComponent className={styles.cam} streamManager={participants[0]} /> } */}
                       {memoVideoFirst}
-                      <div className={Videostyles.nickname}>{participants[0].nick}</div>
+                      <div className={Videostyles.nickname}>{JSON.parse(participants[0].stream.connection.data.split("%")[0]).clientData}</div>
                     </span>
                     <span className={Videostyles.streamcomponent} style={{ gridArea: `cam${1 + 2}` }}>
-                      {/* <OpenViduVideoComponent className={styles.cam} streamManager={participants[1]} /> */}
+                      {/* { <OpenViduVideoComponent className={styles.cam} streamManager={participants[1]} /> } */}
                       {memoVideoSecond}
-                      <div className={Videostyles.nickname}>{participants[1].nick}</div>
+                      <div className={Videostyles.nickname}>{JSON.parse(participants[1].stream.connection.data.split("%")[0]).clientData}</div>
                     </span>
                     <span className={Videostyles.streamcomponent} style={{ gridArea: `cam${2 + 2}` }}>
-                      {/* <OpenViduVideoComponent className={styles.cam} streamManager={participants[2]} /> */}
+                      {/* { <OpenViduVideoComponent className={styles.cam} streamManager={participants[2]} /> } */}
                       {memoVideoThird}
-                      <div className={Videostyles.nickname}>{participants[2].nick}</div>
+                      <div className={Videostyles.nickname}>{JSON.parse(participants[2].stream.connection.data.split("%")[0]).clientData}</div>
                     </span>
                   </>
                 ) : null}

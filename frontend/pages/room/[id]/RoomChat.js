@@ -8,10 +8,8 @@ export default function RoomChat(props) {
   const info = props.info;
   const [client] = useState(props.client);
 
-  // useEffect(()=>{
     console.log(info)
     console.log(client)
-  // }, [])
 
   /* 유영 : Socket을 이용한 채팅 함수 시작 */
   const [message, setMessage] = useState('')
